@@ -11,68 +11,174 @@
     </div>
 
     <!-- Recognition Area -->
-    <AddressInput v-model="rawText" @identify="handleIdentify" />
+    <AddressInput 
+      v-model="rawText" 
+      @identify="handleIdentify"
+      :disabled="loading" 
+    />
 
     <hr class="border-outline-variant/30" />
 
     <!-- Result Form -->
-    <ExtractedForm v-model="form" @save="handleSave" />
+    <ExtractedForm ref="formRef" v-model="form" @save="handleSave" />
+
+    <!-- Loading Overlay -->
+    <LoadingOverlay :visible="loading" :message="currentLang === 'en' ? 'Processing...' : '处理中...'" />
+
+    <!-- Toast -->
+    <Toast :visible="toast.visible" :message="toast.message" :type="toast.type" />
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { useI18n } from '../i18n'
+import { extractAddress } from '../api'
 import AddressInput from '../components/AddressInput.vue'
 import ExtractedForm from '../components/ExtractedForm.vue'
+import LoadingOverlay from '../components/LoadingOverlay.vue'
+import Toast from '../components/Toast.vue'
 
-const { t } = useI18n()
+const { t, currentLang } = useI18n()
 
 const rawText = ref('')
+const loading = ref(false)
+const formRef = ref(null)
 
 const form = ref({
   recipientName: '',
   phoneNumber: '',
-  region: 'New York',
-  city: 'New York City',
-  district: 'Manhattan',
+  region: '',
+  city: '',
+  district: '',
   detail: ''
 })
 
-function handleIdentify() {
-  const text = (rawText.value || '').trim()
-  if (!text) return
+const toast = reactive({
+  visible: false,
+  message: '',
+  type: 'success'
+})
 
-  const next = { ...form.value }
-
-  const phoneMatch = text.match(/(\+?\d[\d\s-]{8,}\d)/)
-  if (phoneMatch) {
-    next.phoneNumber = phoneMatch[1].trim()
-  }
-
-  const nameMatch = text.match(/^([A-Za-z\u4e00-\u9fa5 .'-]{2,30})\s*[,，]/)
-  if (nameMatch) {
-    next.recipientName = nameMatch[1].trim()
-  }
-
-  let remain = text
-  if (phoneMatch) remain = remain.replace(phoneMatch[1], '')
-  if (nameMatch) remain = remain.replace(nameMatch[0], ' ')
-  remain = remain.replace(/^[,，\s]+|[,，\s]+$/g, '')
-  if (remain) {
-    next.detail = remain
-  }
-
-  form.value = next
+function showToast(message, type = 'success') {
+  toast.message = message
+  toast.type = type
+  toast.visible = true
+  setTimeout(() => {
+    toast.visible = false
+  }, 3000)
 }
 
-function handleSave() {
-  const f = form.value
-  // eslint-disable-next-line no-alert
-  alert(
-    `${t('page.savedMessage')}\n${t('page.recipientName')}: ${f.recipientName}\n${t('page.phoneNumber')}: ${f.phoneNumber}\n` +
-      `${t('page.region')}: ${f.region} / ${f.city} / ${f.district}\n` +
-      `${t('page.detailAddress')}: ${f.detail}`
-  )
+async function handleIdentify() {
+  const text = (rawText.value || '').trim()
+  if (!text) {
+    showToast(
+      currentLang.value === 'en' ? 'Please enter address text' : '请输入地址文本',
+      'error'
+    )
+    return
+  }
+
+  loading.value = true
+
+  try {
+    const data = await extractAddress(text)
+    
+    // 更新表单数据
+    form.value = {
+      recipientName: data.name || '',
+      phoneNumber: data.phone || '',
+      region: data.province || '',
+      city: data.city || '',
+      district: data.district || '',
+      detail: data.specific_location || ''
+    }
+
+    showToast(
+      currentLang.value === 'en' ? 'Address extracted successfully' : '地址识别成功',
+      'success'
+    )
+  } catch (error) {
+    console.error('Extract address failed:', error)
+    showToast(
+      currentLang.value === 'en' 
+        ? `Extraction failed: ${error.message}` 
+        : `识别失败: ${error.message}`,
+      'error'
+    )
+  } finally {
+    loading.value = false
+  }
+}
+
+function isValidPhone(phone) {
+  const chinaMobile = /^(?:\+?86)?1[3-9]\d{9}$/
+  const chinaLandline = /^(?:\+?86)?(?:0\d{2,3}-)?\d{7,8}$/
+  const usPhone = /^(\+?1)?[\s.-]?\(?[2-9]\d{2}\)?[\s.-]?[2-9]\d{2}[\s.-]?\d{4}$/
+  const international = /^\+[1-9]\d{2,14}$/
+  
+  return chinaMobile.test(phone) || 
+         chinaLandline.test(phone) || 
+         usPhone.test(phone) || 
+         international.test(phone)
+}
+
+function handleSave(areaData) {
+  const { recipientName, phoneNumber, region, city, district, detail } = form.value
+  
+  if (!recipientName.trim()) {
+    showToast(
+      currentLang.value === 'en' 
+        ? 'Please fill in the recipient name or use smart identification' 
+        : '请填写收件人姓名或使用智能识别',
+      'error'
+    )
+    return
+  }
+
+  if (!phoneNumber.trim()) {
+    showToast(
+      currentLang.value === 'en' 
+        ? 'Please fill in the phone number or use smart identification' 
+        : '请填写联系电话或使用智能识别',
+      'error'
+    )
+    return
+  }
+
+  if (!isValidPhone(phoneNumber)) {
+    showToast(
+      currentLang.value === 'en' 
+        ? 'Please enter a valid phone number' 
+        : '请输入有效的手机号码',
+      'error'
+    )
+    return
+  }
+
+  const regionValue = areaData?.region || region
+  if (!regionValue) {
+    showToast(
+      currentLang.value === 'en' 
+        ? 'Please select province/city/district or use smart identification' 
+        : '请选择省市区或使用智能识别',
+      'error'
+    )
+    return
+  }
+
+  showToast(t('page.savedMessage'), 'success')
+
+  rawText.value = ''
+  form.value = {
+    recipientName: '',
+    phoneNumber: '',
+    region: '',
+    city: '',
+    district: '',
+    detail: ''
+  }
+
+  formRef.value?.reset()
 }
 </script>

@@ -35,25 +35,30 @@
         <label class="font-label-md text-label-md text-on-surface-variant">{{ t('page.region') }}</label>
         <div class="grid grid-cols-3 gap-sm">
           <select
-            :value="modelValue.region"
-            @change="update('region', $event.target.value)"
+            :value="localProvince"
+            @change="handleProvinceChange"
             class="w-full h-[48px] px-md bg-surface-bright border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/20 transition-all appearance-none cursor-pointer"
           >
-            <option v-for="o in regions" :key="o.key" :value="o.value">{{ t(o.key) }}</option>
+            <option value="" disabled>{{ t('page.selectProvince') }}</option>
+            <option v-for="p in provinces" :key="p.code" :value="p.name">{{ p.name }}</option>
           </select>
           <select
-            :value="modelValue.city"
-            @change="update('city', $event.target.value)"
-            class="w-full h-[48px] px-md bg-surface-bright border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/20 transition-all appearance-none cursor-pointer"
+            :value="localCity"
+            @change="handleCityChange"
+            :disabled="!localProvince"
+            class="w-full h-[48px] px-md bg-surface-bright border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/20 transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <option v-for="o in cities" :key="o.key" :value="o.value">{{ t(o.key) }}</option>
+            <option value="" disabled>{{ t('page.selectCity') }}</option>
+            <option v-for="c in cities" :key="c.code" :value="c.name">{{ c.name }}</option>
           </select>
           <select
-            :value="modelValue.district"
-            @change="update('district', $event.target.value)"
-            class="w-full h-[48px] px-md bg-surface-bright border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/20 transition-all appearance-none cursor-pointer"
+            :value="localDistrict"
+            @change="handleDistrictChange"
+            :disabled="!localCity"
+            class="w-full h-[48px] px-md bg-surface-bright border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/20 transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <option v-for="o in districts" :key="o.key" :value="o.value">{{ t(o.key) }}</option>
+            <option value="" disabled>{{ t('page.selectDistrict') }}</option>
+            <option v-for="d in districts" :key="d.code" :value="d.name">{{ d.name }}</option>
           </select>
         </div>
       </div>
@@ -74,7 +79,7 @@
     <div class="flex justify-end mt-sm">
       <button
         type="button"
-        @click="$emit('save')"
+        @click="handleSave"
         class="w-full md:w-auto bg-primary text-on-primary h-[48px] px-xl rounded-lg font-label-md text-label-md flex items-center justify-center gap-sm hover:bg-on-primary-fixed-variant active:scale-95 transition-all shadow-sm"
       >
         <span
@@ -88,7 +93,10 @@
 </template>
 
 <script setup>
+import { ref, computed, watch } from 'vue'
 import { useI18n } from '../i18n'
+import { getAllProvinces, getCitiesByProvince, getCountiesByCity, getProvinceCode, getCityCode } from '../utils/area'
+
 
 const { t, currentLang } = useI18n()
 
@@ -100,20 +108,98 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'save'])
 
-const regions = [
-  { key: 'regions.newYork', value: 'New York' },
-  { key: 'regions.california', value: 'California' }
-]
-const cities = [
-  { key: 'cities.newYorkCity', value: 'New York City' },
-  { key: 'cities.albany', value: 'Albany' }
-]
-const districts = [
-  { key: 'districts.manhattan', value: 'Manhattan' },
-  { key: 'districts.brooklyn', value: 'Brooklyn' }
-]
+const provinces = ref(getAllProvinces())
+
+const localProvince = ref(props.modelValue.region || '')
+const localCity = ref(props.modelValue.city || '')
+const localDistrict = ref(props.modelValue.district || '')
+
+const cities = computed(() => {
+  if (!localProvince.value) return []
+  const provinceCode = getProvinceCode(localProvince.value)
+  if (!provinceCode) return []
+  return getCitiesByProvince(provinceCode)
+})
+
+const districts = computed(() => {
+  if (!localCity.value) return []
+  const provinceCode = getProvinceCode(localProvince.value)
+  if (!provinceCode) return []
+  const cityCode = getCityCode(provinceCode, localCity.value)
+  if (!cityCode) return []
+  return getCountiesByCity(cityCode)
+})
+
+watch(() => props.modelValue.region, (newRegion) => {
+  localProvince.value = newRegion || ''
+})
+
+watch(() => props.modelValue.city, (newCity) => {
+  localCity.value = newCity || ''
+})
+
+watch(() => props.modelValue.district, (newDistrict) => {
+  localDistrict.value = newDistrict || ''
+})
+
+watch([() => props.modelValue.region, () => props.modelValue.city, () => props.modelValue.district], 
+  ([newRegion, newCity, newDistrict]) => {
+  if (newRegion) {
+    localProvince.value = newRegion
+    setTimeout(() => {
+      if (newCity) {
+        localCity.value = newCity
+        setTimeout(() => {
+          if (newDistrict) {
+            localDistrict.value = newDistrict
+          }
+        }, 0)
+      }
+    }, 0)
+  }
+}, { immediate: true })
+
+function handleProvinceChange(event) {
+  const provinceName = event.target.value
+  localProvince.value = provinceName
+  localCity.value = ''
+  localDistrict.value = ''
+  update('region', provinceName)
+  update('city', '')
+  update('district', '')
+}
+
+function handleCityChange(event) {
+  const cityName = event.target.value
+  localCity.value = cityName
+  localDistrict.value = ''
+  update('city', cityName)
+  update('district', '')
+}
+
+function handleDistrictChange(event) {
+  const districtName = event.target.value
+  localDistrict.value = districtName
+  update('district', districtName)
+}
 
 function update(key, value) {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
 }
+
+function handleSave() {
+  emit('save', {
+    region: localProvince.value,
+    city: localCity.value,
+    district: localDistrict.value
+  })
+}
+
+function reset() {
+  localProvince.value = ''
+  localCity.value = ''
+  localDistrict.value = ''
+}
+
+defineExpose({ reset })
 </script>
