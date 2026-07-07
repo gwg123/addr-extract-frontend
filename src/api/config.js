@@ -1,7 +1,7 @@
 // API 配置
 export const API_CONFIG = {
   // 解析服务 API 地址：从环境变量 VITE_API_BASE_URL 读取，未配置时使用默认地址
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8097',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://47.101.157.246:8097',
 
   // 鉴权密钥：从环境变量 VITE_API_KEY 读取，会以 Bearer Token 形式加入请求头
   apiKey: import.meta.env.VITE_API_KEY || '',
